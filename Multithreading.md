@@ -310,12 +310,158 @@ class ClassName {
 ----------
 ## ThreadLocal
 
+当我们希望多个线程不共用某个变量的时候，`ThreadLocal`可以派上用场。譬如`SimpleFormat`是非线程安全的，所以如果在Servlet环境下，多线程共用的话，以下的写法其实是错误的。很多程序员都会犯的错误！
+
+```java
+private static final DateFormat FORMAT = new SimpleDateFormat("yyyy-MM-dd");
+
+...
+
+public Date getDate(String str) throws ParseException {
+    Date date = dateFORMAT.parse(str);
+    return date;
+}
+
+```
+要验证这个错误，我们来写一个多线程环境下的程序：
+
+```java
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+
+public class SimpleDateFormatNotThreadSafe {
+	
+	private static final DateFormat FORMAT = new SimpleDateFormat("yyyy-MM-dd");
+	
+	public static void main(String args[]) throws Exception {
+		
+		for(int i = 0 ; i < 10; i++) {
+			Thread t = new MyThread("thread "+i);
+			t.start();
+		}
+		
+	}
+	
+	static class MyThread extends Thread {
+		
+		MyThread(String threadName) {
+			super(threadName);
+		}
+		
+		@Override
+		public void run() {
+			System.out.println("Created Thread " + getName());
+			try{
+				System.out.println(FORMAT.parse("2016-01-01"));
+			} catch( Exception e){
+				e.printStackTrace();
+			}
+		}
+	}
+
+}
+
+```
+
+以上程序有可能会抛出异常，因为`SimpleDateFormat`并不是线程安全的（这其实是`SimpleDateFormat`设计者的错误，`SimpleDateFormat`应该设计成不可变类）。然而`SimpleDateFormat`对象的创建是很昂贵的，所以我们可以用`ThreadLocal`来解决这个问题：
+
+```java
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+
+public class ThreadLocalThreadSafe {
+
+	private static final ThreadLocal<DateFormat> FORMAT = new ThreadLocal<DateFormat>(){
+		
+		@Override 
+		protected DateFormat initialValue(){
+			return new SimpleDateFormat("yyyy-MM-dd");
+		}
+	};
+	
+	public static void main(String args[]) throws Exception {
+		
+		for(int i = 0 ; i < 10; i++) {
+			Thread t = new MyThread("thread "+i);
+			t.start();
+		}
+		
+	}
+	
+	static class MyThread extends Thread {
+		
+		MyThread(String threadName) {
+			super(threadName);
+		}
+		
+		@Override
+		public void run() {
+			System.out.println("Created Thread " + getName());
+			try{
+				System.out.println(FORMAT.get().parse("2016-01-01"));
+			} catch( Exception e){
+				e.printStackTrace();
+			}
+		}
+	}
+
+}
+```
+`ThreadLocal`可以为每个线程创建独立的“本地”变量，这样线程之间并不会共用，也就不会有线程安全问题。这是不想写不可变类，又不想进行同步时的一种选择。
+当然针对DateFormat，我们有更好的选择：
+
+- apache commons中的[FastDateFormat](https://commons.apache.org/proper/commons-lang/javadocs/api-2.6/org/apache/commons/lang/time/FastDateFormat.html)
+- joda-time中的[DateTimeFormat](http://www.joda.org/joda-time/apidocs/org/joda/time/format/DateTimeFormat.html)
+- Java 8中的[DateTimeFormatter](http://docs.oracle.com/javase/8/docs/api/java/time/format/DateTimeFormatter.html)
+
+而`ThreadLocal`和线程池一起用的时候，要小心内存泄露的问题，[参考1](http://cs.oswego.edu/pipermail/concurrency-interest/2007-October/004456.html)|[参考2](http://stackoverflow.com/questions/17968803/threadlocal-memory-leak)|[参考3](http://javarevisited.blogspot.hk/2012/03/simpledateformat-in-java-is-not-thread.html)|[参考4](http://java.jiderhamn.se/2012/01/29/classloader-leaks-iv-threadlocal-dangers-and-why-threadglobal-may-have-been-a-more-appropriate-name/)，大部分J2EE应用容器都会使用线程池来重用线程，所以我们需要特别小心ThreadLocal，最后需要进行清理：
+
+```java
+try {
+    threadLocal.set(value);
+    ...
+}
+finally {
+    threadLocal.remove();
+}
+```
 
 ----------
 
 ## 同步集合（Synchronized Collection）
 
-## 并发集合（Concurrency Collection）
+我们知道ArrayList, HashMap, HashSet都是非线程安全的。多线程环境下，没有同步的情况下不能直接使用ArrayList, HashMap, HashSet。
+Java JDK中已经有一些同步集合，用来保证我们的线程安全。
+
+- Vector和Hashtable
+    + 多线程环境，[Vector](http://docs.oracle.com/javase/6/docs/api/java/util/Vector.html)代替ArrayList
+    + 多线程环境，[Hashtable](http://docs.oracle.com/javase/6/docs/api/java/util/Hashtable.html)代替HashMap
+    + 但实际Vector和Hashtable性能很差，已经很少用了，多线程并发中，我们通常用并发集合`CopyOnWriteArrayList`和`ConcurrentHashMap`代替
+    + 如果数据量大的情况下，单线程下，Vector反而比ArrayList的效率高（可以写个简单的程序测试），这是因为Vector的扩容方式和ArrayList不同，相对于扩容，加锁解锁的开销反而可以忽略
+- Collections中的静态方法
+    + 多线程环境，[Colloctions.synchronizedList(List<T> list)](http://docs.oracle.com/javase/6/docs/api/java/util/Collections.html#synchronizedList(java.util.List))代替ArrayList
+    + 多线程环境，[Colloctions.synchronizedMap(Map<K,V> m)](http://docs.oracle.com/javase/6/docs/api/java/util/Collections.html#synchronizedMap(java.util.Map))用来代替HashMap
+
+但使用同步集合，线程安全并不是万无一失的，还是需要注意同步问题。
+Vector仅能保证同一时刻只能有一个线程访问Vector，但并不能保证多步操作的原子性，譬如vector.size()和vector.remove(i)之间可能已经被另外的线程修改了vector。下面的做法才是正确的做法：
+```java
+Vector vector = new Vector();
+...
+synchronized (vector) {
+    for(int i = 0; i < vector.size(); i++)
+        vector.remove(i);
+}
+```
+而使用Collections.synchronizedList时，需要进行iterator遍历时，也需要同步：
+```java
+List list = Collections.synchronizedList(new ArrayList());
+...
+synchronized(list) {
+     Iterator i = list.iterator(); // Must be in synchronized block
+    while (i.hasNext())
+        foo(i.next());
+}
+```
 
 ----------
 ## java.util.concurrent常用工具
@@ -360,6 +506,36 @@ class X {
 
 ### ReadWriteLock
 
+### 并发集合（Concurrency Collection）
+由于同步集合对所有的访问无论读写都进行了同步，大大降低了并发效率。Java 5在java.util.concurrent中加入了并发集合，改善了效率：
+
+- ConcurrentHashMap
+    + ConcurrentHashMap采用了分段锁(segment)的设计，读时并没有同步，写时也不是对整个map同步，只是对segment同步，因此大大提高了同步性
+- CopyOnWriteArrayList
+    + Copy-On-Write(COW)的策略是：读的时候不加锁，写的时候(add, remove)的时候先将集合复制，然后修改，修改完毕，再将引用指向新的集合
+    + 但要注意占用空间的问题，因为每次更改都会复制，如果list太大，则会造成频繁的GC，这时可能不用Copy-On-Write，而使用其他集合，如ConcurrentHashMap
+```java
+public E get(int index) {
+    return (E)(getArray()[index]);
+}
+
+public boolean add(E e) {
+	final ReentrantLock lock = this.lock;
+	lock.lock();
+	try {
+	    Object[] elements = getArray();
+	    int len = elements.length;
+	    Object[] newElements = Arrays.copyOf(elements, len + 1);
+	    newElements[len] = e;
+	    setArray(newElements);
+	    return true;
+	} finally {
+	    lock.unlock();
+	}
+}
+```
+- CopyOnWriteArraySet
+    + CopyOnWriteArraySet里面包含一个CopyOnWriteArrayList，其实是对CopyOnWriteArrayList包装类，因此CopyOnWriteArrayList也适用于CopyOnWriteArraySet
 
 ### Synchronizer
 ### AbstractQueuedSynchronizer(AQS)
