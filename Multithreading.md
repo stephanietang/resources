@@ -144,7 +144,7 @@ try{
     + 区别于`wait`, `sleep`不会释放锁，到了指定时间，再重新运行
     + static方法，直接使用`Thread.sleep(timeout)`使当前线程暂停
  - `interrupt()`
-    + 属于`Thread`类，用于中断某个线程
+    + 属于`Thread`类，用于中断某个阻塞的线程，换句话说不能中断正在运行的线程
     + `wait`或`join`或`sleep`被中断，会抛出`InterruptedException`
 ```java
 MyThread t = new MyThread();
@@ -310,7 +310,7 @@ class ClassName {
 ----------
 ## ThreadLocal
 
-当我们希望多个线程不共用某个变量的时候，`ThreadLocal`可以派上用场。譬如`SimpleFormat`是非线程安全的，所以如果在Servlet环境下，多线程共用的话，以下的写法其实是错误的。很多程序员都会犯的错误！
+当我们希望多个线程不共用某个变量的时候，`ThreadLocal`可以派上用场。譬如为每个request记录一个transaction id或者sequence id。另外，`SimpleFormat`是非线程安全的，所以如果在Servlet环境下，多线程共用的话，以下的写法其实是错误的。很多程序员都会犯的错误！
 
 ```java
 private static final DateFormat FORMAT = new SimpleDateFormat("yyyy-MM-dd");
@@ -414,7 +414,7 @@ public class ThreadLocalThreadSafe {
 - joda-time中的[DateTimeFormat](http://www.joda.org/joda-time/apidocs/org/joda/time/format/DateTimeFormat.html)
 - Java 8中的[DateTimeFormatter](http://docs.oracle.com/javase/8/docs/api/java/time/format/DateTimeFormatter.html)
 
-而`ThreadLocal`和线程池一起用的时候，要小心内存泄露的问题，[参考1](http://cs.oswego.edu/pipermail/concurrency-interest/2007-October/004456.html)|[参考2](http://stackoverflow.com/questions/17968803/threadlocal-memory-leak)|[参考3](http://javarevisited.blogspot.hk/2012/03/simpledateformat-in-java-is-not-thread.html)|[参考4](http://java.jiderhamn.se/2012/01/29/classloader-leaks-iv-threadlocal-dangers-and-why-threadglobal-may-have-been-a-more-appropriate-name/)，大部分J2EE应用容器都会使用线程池来重用线程，所以我们需要特别小心ThreadLocal，最后需要进行清理：
+而`ThreadLocal`和线程池一起用的时候，要小心内存泄露的问题，导致`OutOfMemoryError`。[参考1](http://stackoverflow.com/questions/17968803/threadlocal-memory-leak)|[参考2](https://blog.codecentric.de/en/2008/09/a-threadlocal-memory-leak/)|[参考3](https://wiki.apache.org/tomcat/MemoryLeakProtection)，大部分J2EE应用容器都会使用线程池来重用线程，所以我们需要特别小心ThreadLocal，最后需要进行清理：
 
 ```java
 try {
@@ -468,43 +468,97 @@ synchronized(list) {
 
 `java.util.concurrent`提供了许多常用工具。在实际应用中，我们应该更多的使用它们，而不是再自己重复造轮子。
 
-### Lock
-http://www.ibm.com/developerworks/cn/java/j-jtp10264/index.html
-Java 1.5在`java.util.concurrent.locks`中增加了Lock接口，定义了以下的方法：
+### Lock和ReentrantLock
+Java 5在`java.util.concurrent.locks`中增加了Lock接口，Lock的加锁和解锁的语义是等同于synchronized的，只不过Lock可以更细粒度的控制锁。Lock定义了以下的方法：
 
- - lock() 
- - lockInterruptibly() 
- - tryLock() 
- - tryLock(long timeout, TimeUnit timeUnit)
- - unlock()
-
-### ReentrantLock
-ReentrantLock是Lock的实现类。
-典型用法：
+ - `void lock()`: 加锁，如果当前线程获得锁则立即返回，如果未获得锁则等待，则等待直至获得锁
+ - `void lockInterruptibly() throws InterruptedException`：如果当前线程获得锁，则立即返回，如果当前线程未能获得锁则等待，等待过程中可以被另外的线程中断
+ - `boolean tryLock()`:当前线程尝试获得锁，如果成功则立刻返回true，如果失败则立刻返回false
+ - `boolean tryLock(long time, TimeUnit unit) throws InterruptedException`：在一定的时间内尝试获得锁，并且在这段时间直接可以被打断。如果成功获得，那么将返回 true，否则，返回 false
+ - `unlock()`：解锁，Lock不会像 synchronized 那样自动释放锁，所以：一定要放在 try-finally块中，保证锁的释放
 ```java
-class X {
-    private final ReentrantLock lock = new ReentrantLock();
-    // ...
-
-    public void m() {
-        lock.lock();  // block until condition holds
-        try {
-            // ... method body
-        } finally {
-            lock.unlock()
-        }
-    }
+try {
+    lock.lock();
+    ......
+} finally {
+    lock.unlock();  
 }
 ```
-它具有和synchronized相同的内存语义、相同的锁定，但具有更好的性能，以及其他的用途和优点：
+- `Condition newCondition()`
+    + Condition 的方法与wait、notify和notifyAll方法类似，分别命名为await、signal和signalAll
+    + Lock对象可以有不止一个条件变量与它关联。这样就简化了许多并发算法的开发
+    + 相对于wait，notify/notifyAll，因为未知唤醒的是消费者或是生产者，可能想要唤醒生产者，却唤醒的是消费者，则需要将消费者重新阻塞，直至唤醒的是生产者为止，这样白白浪费了资源。而用Condition可以指定多个Condition，明确定义是唤醒的是消费者还是生产者。
+下面是用Condition和Lock来实现生产者-消费者模型：
+```java
+class FIFOBuffer {      
+    final Lock lock = new ReentrantLock();     
+    final Condition notFull  = lock.newCondition();       
+    final Condition notEmpty = lock.newCondition();
+    
+    final Object[] items = new Object[100];      
+    int putptr/*put pointer*/, takeptr/*take pointer*/, count;      
+    public void put(Object x) throws InterruptedException {      
+        lock.lock();      
+        try {      
+            while (count == items.length)
+                notFull.await();
+            items[putptr] = x;
+            if (++putptr == items.length) 
+                putptr = 0;
+            ++count;    
+            notEmpty.signal();
+        } finally {      
+            lock.unlock();      
+        }      
+    }      
 
-- 定时的锁等待
-- 可中断的锁等待
-- 公平性
-- 实现非块结构的加锁
+    public Object take() throws InterruptedException {      
+        lock.lock();      
+        try {      
+            while (count == 0)      
+                notEmpty.await();
+            Object x = items[takeptr];
+            if (++takeptr == items.length) 
+                takeptr = 0;
+            --count;
+            notFull.signal();
+            return x;      
+        } finally {      
+            lock.unlock();      
+        }      
+    }       
+} 
+```
+ReentrantLock是Lock的实现类，它是一个可重入锁。另外synchronized也是可重入锁。
+
+> 什么叫可重入锁：指同一个线程，外层函数获得锁之后，内层递归函数仍有获得该锁的代码，但是不受影响。
+可重入锁的最大作用就是可以避免死锁。例如：A线程有两个方法a和b，其中a方法会调用b方法，假如a，b两个方法都需要获得锁，那么首先 a 方法先执行，会获得锁，此时b方法将永远获得不了锁，b方法将一直阻塞住，a方法由于b方法没有执行完，它本身也不释放锁，此时就会造成一个死锁。
+
+ReentrantLock同synchronized的区别总结如下是：
+
+- lock在获取锁的过程可以被中断
+- lock可以尝试获取锁，如果锁被其他线程持有，则返回 false，不会使当前线程休眠
+- lock在尝试获取锁的时候，传入一个时间参数，如果在这个时间范围内，没有获得锁，那么就是终止请求
+- synchronized会自动释放锁，lock则不会自动释放锁
+- 可以在不同方法中lock()和unlock()，实现非块结构的加锁解锁
 - Condition中的`await()`，`signal()`和`signalAll()`对应Object中的`wait()`，`notify()`和`notifyAll()`
+- 可以实现公平的ReentrantLock锁（默认是非公平锁），而synchronized是非公平锁
+- 在性能上来说，如果竞争资源不激烈，两者的性能是差不多的，而当竞争资源非常激烈时，此时Lock的性能要远远优于synchronized。[参考](http://www.ibm.com/developerworks/cn/java/j-jtp10264/index.html)
 
-### ReadWriteLock
+### ReadWriteLock和ReentrantReadWriteLock
+ReadWriteLock接口和Lock既不是继承关系，也不是实现关系。它实现了如下接口：
+
+```java
+public interface ReadWriteLock {  
+    Lock readLock();  
+    Lock writeLock();  
+}
+```
+它可以实现并行的读，但是串行的读/写，写/读，写/写。主要用于读多于写的情况，可以大大提高并行效率。
+- 如果有一个线程已经占用了读锁，则此时其他线程如果也要申请读锁，则其他线程不会被阻塞。
+- 如果有一个线程已经占用了读锁，则此时其他线程如果要申请写锁，则申请写锁的线程会一直等待释放读锁。
+- 如果有一个线程已经占用了写锁，则此时其他线程如果申请写锁或者读锁，则申请的线程会一直等待释放写锁。
+ReentrantReadWriteLock是ReadWriteLock的实现类，是读写可重入锁。
 
 ### 并发集合（Concurrency Collection）
 由于同步集合对所有的访问无论读写都进行了同步，大大降低了并发效率。Java 5在java.util.concurrent中加入了并发集合，改善了效率：
@@ -539,14 +593,188 @@ public boolean add(E e) {
 
 ### Synchronizer
 ### AbstractQueuedSynchronizer(AQS)
-
-### Semaphore
-
+AbstractQueuedSynchronizer是`java.util.concurrent`的核心，其他工具类（如ReentrantLock，CountDownLatch，Semaphore）都要依赖它。
 ### CountDownLatch
+CountDownLatch可以实现类似计数器的功能。比如有一个任务A，它要等待其他4个任务执行完毕之后才能执行，此时就可以利用CountDownLatch来实现这种功能了。
+下面例子waiter等待decrementer线程执行一次countdown。CountDownLatch初始化时需要声明要countdown几次，每countdown一次，count减1，直到减到0，waiter才会在await()从阻塞状态重新恢复运行。
+
+```java
+import java.util.concurrent.CountDownLatch;
+
+public class CountDownLatchExample {
+	
+	public static void main(String args[]) throws Exception {
+		
+		CountDownLatch countDownLatch = new CountDownLatch(1);
+		
+		Thread waiter = new Waiter(countDownLatch);
+		
+		Thread decrementer = new Decrementer(countDownLatch);
+		
+		waiter.start();
+		decrementer.start();
+	}
+	
+	static class Waiter extends Thread {
+		
+		private CountDownLatch countDownLatch;
+		
+		Waiter(CountDownLatch countDownLatch) {
+			this.countDownLatch = countDownLatch;
+		}
+		
+		@Override
+		public void run() {
+			System.out.println("Create wait Thread");
+			try{
+				this.countDownLatch.await();
+			} catch(InterruptedException e) {
+				e.printStackTrace();
+			}
+			System.out.println("End wait Thread");
+		}
+	}
+	
+	static class Decrementer extends Thread {
+		
+		private CountDownLatch countDownLatch;
+		
+		Decrementer(CountDownLatch countDownLatch) {
+			this.countDownLatch = countDownLatch;
+		}
+		
+		@Override
+		public void run() {
+			System.out.println("Created Decrementer Thread");
+			try{
+				Thread.sleep(1000);
+				this.countDownLatch.countDown();
+				System.out.println("count down once");
+			} catch(InterruptedException e) {
+				e.printStackTrace();
+			}
+			System.out.println("End Decrementer Thread");
+		}
+	}
+}
+```
 
 ### CyclicBarrier
 
-### Exchanger
+通过CyclicBarrier可以实现让一组线程等待至某个状态之后再全部同时执行。当调用await()方法之后，线程就处于barrier了，而当所有线程都达到barrier之后，就会全部继续执行。
+![CyclicBarrier](https://c1.staticflickr.com/9/8416/30306524302_215a5e92a1_o.png)
+
+```java
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.CyclicBarrier;
+
+public class CyclicBarrierExample {
+	
+	public static void main(String args[]) throws Exception {
+		
+		Runnable barrier1Action = new Runnable() {
+		    public void run() {
+		        System.out.println("BarrierAction 1 executed ");
+		    }
+		};
+		Runnable barrier2Action = new Runnable() {
+		    public void run() {
+		        System.out.println("BarrierAction 2 executed ");
+		    }
+		};
+
+		CyclicBarrier barrier1 = new CyclicBarrier(2, barrier1Action);
+		CyclicBarrier barrier2 = new CyclicBarrier(2, barrier2Action);
+
+		CyclicBarrierRunnable barrierRunnable1 = new CyclicBarrierRunnable(barrier1, barrier2);
+
+		CyclicBarrierRunnable barrierRunnable2 = new CyclicBarrierRunnable(barrier1, barrier2);
+
+		new Thread(barrierRunnable1).start();
+		new Thread(barrierRunnable2).start();
+	}
+	
+	
+	static class CyclicBarrierRunnable implements Runnable{
+
+	    CyclicBarrier barrier1 = null;
+	    CyclicBarrier barrier2 = null;
+
+	    public CyclicBarrierRunnable(CyclicBarrier barrier1, CyclicBarrier barrier2) {
+
+	        this.barrier1 = barrier1;
+	        this.barrier2 = barrier2;
+	    }
+
+	    public void run() {
+	        try {
+	            Thread.sleep(1000);
+	            System.out.println(Thread.currentThread().getName() + " waiting at barrier 1");
+	            this.barrier1.await();
+
+	            Thread.sleep(1000);
+	            System.out.println(Thread.currentThread().getName() + " waiting at barrier 2");
+	            this.barrier2.await();
+
+	            System.out.println(Thread.currentThread().getName() + " done!");
+
+	        } catch (InterruptedException e) {
+	            e.printStackTrace();
+	        } catch (BrokenBarrierException e) {
+	            e.printStackTrace();
+	        }
+	    }
+	}
+}
+```
+和CountDownLatch不同，CyclicBarrier可以被重复使用，从字面Cyclic（循环）就可以看出来。
+
+### Semaphore
+
+Semaphore可以控制同时访问的线程个数，Semaphore初始化需要传入"permits"个数，指明仅能有"permits"个的线程能访问某一个资源。线程通过 acquire() 获取一个许可，如果没有许可就等待，而 release() 释放一个许可。
+
+```java
+import java.util.concurrent.Semaphore;
+
+public class SemaphoreExample {
+	
+    public static void main(String[] args) {
+        
+    	final int WORKER_NUM = 8;
+    	final int MACHINE_NUM = 5;
+        Semaphore semaphore = new Semaphore(MACHINE_NUM);
+        for(int i = 0; i < WORKER_NUM; i++)
+            new Worker(i,semaphore).start();
+    }
+     
+    static class Worker extends Thread{
+        private int num;
+        private Semaphore semaphore;
+        public Worker(int num,Semaphore semaphore){
+            this.num = num;
+            this.semaphore = semaphore;
+        }
+         
+        @Override
+        public void run() {
+            try {
+                semaphore.acquire();
+                System.out.println("worker " + this.num + " aquires the machine");
+                Thread.sleep(2000);
+                System.out.println("worker " + this.num + " releases the machine");
+                semaphore.release();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+}
+```
+另外有一个fair参数可以控制是否可以公平的获得许可。
+```java
+public Semaphore(int permits, boolean fair)
+```
+倘若fair为true，则先阻塞等待许可的线程将首先获得许可。默认是不公平的，如果设置为公平的Semaphore，则会牺牲性能，所以非必要情况不要设置fair为true。
 
 ### ExecutorService
 
@@ -612,6 +840,9 @@ public class ExecutorServiceExample {
 ### ForkJoinPool
 
 Java 7又增加了ForkJoinPool。它类似ExecutorService
+
+## Atomic Class(原子类)
+
 
 ## 死锁（Deadlock）
 死锁简单来说就是线程A拥有锁a，而需要线程B的锁b，而同时线程B拥有锁b，同时又需要锁a，则会发生死锁。
@@ -701,17 +932,8 @@ jps + jstack
 - 不要在同步块中调用其他的函数
 - 用可以中断的锁，譬如用设置了等待时间的ReentrantLock代替synchronized
 
-
-参考：
-http://www.slideshare.net/caroljmcdonald/java-concurrency-memory-model-and-trends-4961797
-
-关于锁的最佳实践
-http://www.ibm.com/developerworks/cn/java/j-lo-lock/index.html
-
-锁分类：
-http://luojinping.com/2015/07/09/java%E9%94%81%E4%BC%98%E5%8C%96/
-
 ### 关于Spring MVC和Struts线程安全问题
+
 - Spring Controller默认是Singleton，不同request虽然在不同的线程中，但是会使用同一个Controller，所以Controller必须要考虑线程安全问题，不能有可以更改的成员变量。
 如下代码就会有线程安全问题：
 ```java
@@ -726,6 +948,7 @@ public class MyController {
 }
 ```
 要解决线程安全问题，开发时需要特别注意，要么不使用可变成员变量，要么就对变量进行同步，要么成员变量是stateless的（譬如service, repository）。
+
 - Struts 1 Action和Spring Controller一样，是Singleton，必须线程安全，不能在Action中使用成员变量，需要将它们封装在Form中
 - Struts 2 Action，每个request都会new一个Action对象，不需要考虑线程安全问题，可以在Action中使用成员变量
 
