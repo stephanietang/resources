@@ -591,9 +591,38 @@ public boolean add(E e) {
 - CopyOnWriteArraySet
     + CopyOnWriteArraySet里面包含一个CopyOnWriteArrayList，其实是对CopyOnWriteArrayList包装类，因此CopyOnWriteArrayList也适用于CopyOnWriteArraySet
 
+### BlockingQueue
+
+- 这是个接口，可以线程安全的加入和从队列中取得元素
+- 不能加入null
+- 实现了以下的方法
+
+|操作|抛出异常|返回值|阻塞|设置超时|
+| ----  | ----  | ---- |---|
+|增加|add(e)|offer(e)|put(e)|offer(e, time, unit)|
+|删除|remove()|poll()|take()|poll(time, unit)|
+|检测|element()|peek()|||
+
+    ![Blocking Queue](https://c1.staticflickr.com/6/5560/30167718120_be3b5f45b2.jpg)    
+
+具体的实现类有：
+        + [ArrayBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/ArrayBlockingQueue.html)：是一个基于数组结构的有界阻塞队列，此队列按FIFO(先进先出)原则对元素进行排序。
+        + [LinkedBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/LinkedBlockingDeque.html)：一个基于链表结构的阻塞队列，此队列按FIFO(先进先出)排序元素，可以定义有界的或无界
+        + [PriorityBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/PriorityBlockingQueue.html)：放入其中的元素需要实现Comparable接口
+        + [SynchronousQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/SynchronousQueue.html)：同步队列，来一个元素就及时处理一个
+        + [LinkedBlockingDeque](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/LinkedBlockingDeque.html)：队列两头都可以加入也可以取出元素的队列
+        + [DelayQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/DelayQueue.html)：其中的元素过期最多的首先被取出（头部），元素需要实现Delayed接口，如果没有元素过期，则poll返回null
+
 ### Synchronizer
 ### AbstractQueuedSynchronizer(AQS)
-AbstractQueuedSynchronizer是`java.util.concurrent`的核心，其他工具类（如ReentrantLock，CountDownLatch，Semaphore）都要依赖它。
+AbstractQueuedSynchronizer是`java.util.concurrent`的核心，其他工具类（如ReentrantLock，ReentrantReadWriteLock, CountDownLatch，Semaphore）都要依赖它。
+深入解读AbstractQueuedSynchronizer，参考：
+
+- [深度解析Java 8：AbstractQueuedSynchronizer的实现分析(上)](http://www.infoq.com/cn/articles/jdk1.8-abstractqueuedsynchronizer)
+- [深度解析Java 8：AbstractQueuedSynchronizer的实现分析(下)](http://www.infoq.com/cn/articles/java8-abstractqueuedsynchronizer)
+- [深入浅出java同步器](http://www.jianshu.com/p/d8eeb31bee5c)
+- [AbstractQueuedSynchronizer的介绍和原理分析](http://ifeve.com/introduce-abstractqueuedsynchronizer/)
+
 ### CountDownLatch
 CountDownLatch可以实现类似计数器的功能。比如有一个任务A，它要等待其他4个任务执行完毕之后才能执行，此时就可以利用CountDownLatch来实现这种功能了。
 下面例子waiter等待decrementer线程执行一次countdown。CountDownLatch初始化时需要声明要countdown几次，每countdown一次，count减1，直到减到0，waiter才会在await()从阻塞状态重新恢复运行。
@@ -662,6 +691,7 @@ public class CountDownLatchExample {
 ### CyclicBarrier
 
 通过CyclicBarrier可以实现让一组线程等待至某个状态之后再全部同时执行。当调用await()方法之后，线程就处于barrier了，而当所有线程都达到barrier之后，就会全部继续执行。
+
 ![CyclicBarrier](https://c1.staticflickr.com/9/8416/30306524302_215a5e92a1_o.png)
 
 ```java
@@ -693,7 +723,6 @@ public class CyclicBarrierExample {
 		new Thread(barrierRunnable1).start();
 		new Thread(barrierRunnable2).start();
 	}
-	
 	
 	static class CyclicBarrierRunnable implements Runnable{
 
@@ -776,73 +805,178 @@ public Semaphore(int permits, boolean fair)
 ```
 倘若fair为true，则先阻塞等待许可的线程将首先获得许可。默认是不公平的，如果设置为公平的Semaphore，则会牺牲性能，所以非必要情况不要设置fair为true。
 
-### ExecutorService
+### 线程池
+
+所谓线程池，那么就是相当于有一个池子，线程就放在这个池子中进行重复利用，能够减去了线程的创建和销毁所带来的代价。
+线程池比较重要的几个关键类和接口：
+
+- Executors
+- ExecutorService
+- ThreadPoolExecutor
+- ScheduledExecutorService
+- ScheduledThreadPoolExecutor
+
+#### Executors
+
+这是个工厂类，提供很多静态工厂方法用来创建ExecutorService实例，常用的方法有：
 
 ```java
+ExecutorService executorService1 = Executors.newSingleThreadExecutor();
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+ExecutorService executorService2 = Executors.newFixedThreadPool(10);
 
-public class ExecutorServiceExample {
+ExecutorService executorService3 = Executors.newCachedThreadPool();
 
-    private static final int THREAD_NUM = 10;
+ExecutorService executorService5 = Executors.newSingleThreadScheduledExecutor();
 
-    public static void main(String args[]) throws Exception {
+ExecutorService executorService4 = Executors.newScheduledThreadPool(10);
 
-        ExecutorService executor = Executors.newFixedThreadPool(THREAD_NUM);
-		
-		List<Future<Integer>> futures = new ArrayList<Future<Integer>>();
+```
+创建的线程池有什么特性要结合ThreadPoolExecutor和ScheduledThreadPoolExecutor来理解。
 
-        for(int i = 0; i < THREAD_NUM; i++) {
-		
-            MyCallable task = new MyCallable();
-			
-			Future<Integer> future = executor.submit(task);
-			
-			futures.add(future);
-        }
-		
-        executor.shutdown();
-		
-		try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e1) {
-            e1.printStackTrace();
-        }
-		
-		try {
-			for(Future<Integer> future : futures) {
-				System.out.println("Result "+ future.get());
-			}
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        }
-    }
+#### ExecutorService
 
-    static class MyCallable implements Callable<Integer> {
-    	
-    	@Override
-    	public Integer call() throws Exception {
-    		return new Random().nextInt(100);
-    	}
-    }
+```java
+public interface ExecutorService extends Executor {
+
+    Future<?> submit(Runnable task);
     
+    <T> Future<T> submit(Callable<T> task);
+
+    <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks) throws InterruptedException;
+    
+    void shutdown();
+    
+    List<Runnable> shutdownNow();
+    ...
 }
 ```
-### ForkJoinPool
 
-Java 7又增加了ForkJoinPool。它类似ExecutorService
+- `void execute(Runnable command)`：继承自Executor接口，无法返回执行结果，也不知道是否执行成功
+- `Future<?> submit(Runnable task)`：无法返回执行结果，但可以知道是否执行成功，future.get()返回null时则表示任务执行成功
+- `<T> Future<T> submit(Callable<T> task)`:这种用法可以获得执行结果，future.get()可以得到执行结果。
+- `<T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks) throws InterruptedException`: 把任务放进集合中，进行批量的执行，并且可以有返回值
+- `void shutdown()`: 当调用这个方法，线程池不会立即停止，它不再会接受新的任务，当已经提交的任务（不管是否正在运行还是等待）运行完毕，这个线程池会关闭
+- `List<Runnable> shutdownNow()`: 调用它时，会不再接受新的提交任务，也不会再执行已提交并正在等待的任务，而正在执行中的任务也会尝试中断，但并不能保证一定能顺利中断，并返回尚未执行的任务
 
-## Atomic Class(原子类)
+#### ThreadPoolExecutor
 
+ThreadPoolExecutor实现了ExecutorService。创建线程池最常用的是使用ThreadPoolExecutor，实际上Executors里的工厂方法中很多都是通过创建ThreadPoolExecutor实例来实现线程池。
+
+```java
+new ThreadPoolExecutor(
+            int corePoolSize, 
+            int maximumPoolSize, 
+            long keepAliveTime, 
+            TimeUnit unit, 
+            BlockingQueue<Runnable> workQueue, 
+            ThreadFactory threadFactory,
+            RejectedExecutionHandler handler);
+```
+
+- corePoolSize：线程池的基本大小，当提交一个任务到线程池时，线程池会创建一个线程来执行任务（即使有空闲线程也会创建），等到需要执行的任务数大于线程池基本大小时就不再创建。
+- workQueue：任务队列，用于保存等待执行的任务的阻塞队列。 可以选择以下几个阻塞队列。
+    + ArrayBlockingQueue：是一个基于数组结构的有界阻塞队列，此队列按 FIFO（先进先出）原则对元素进行排序。
+    + LinkedBlockingQueue：一个基于链表结构的阻塞队列，此队列按FIFO （先进先出） 排序元素，吞吐量通常要高于ArrayBlockingQueue。静态工厂方法Executors.newFixedThreadPool()使用了这个队列。
+    + SynchronousQueue：一个不存储元素的阻塞队列。每个插入操作必须等到另一个线程调用移除操作，否则插入操作一直处于阻塞状态，吞吐量通常要高于LinkedBlockingQueue，静态工厂方法Executors.newCachedThreadPool()使用了这个队列。
+
+- maximumPoolSize：线程池最大大小，线程池允许创建的最大线程数。如果队列满了，并且已创建的线程数小于最大线程数，则线程池会再创建新的线程执行任务。值得注意的是如果使用了无界的任务队列这个参数就没什么效果。
+- threadFactory：用于设置创建线程的工厂，可以通过线程工厂给每个创建出来的线程设置更有意义的名字。
+- handler：饱和策略，当队列和线程池都满了，说明线程池处于饱和状态，那么必须采取一种策略处理提交的新任务。这个策略默认情况下是AbortPolicy，表示无法处理新任务时抛出异常。以下是JDK1.5提供的四种策略。
+    + AbortPolicy：丢弃任务并抛出RejectedExecutionException异常
+    + DiscardPolicy：也是丢弃任务，但是不抛出异常
+    + CallerRunsPolicy：由调用线程处理该任务
+    + DiscardOldestPolicy：丢弃队列最前面的任务，然后重新尝试执行任务（重复此过程）
+    
+当然也可以根据应用场景需要来实现RejectedExecutionHandler接口自定义策略。如记录日志或持久化不能处理的任务。
+- keepAliveTime：线程活动保持时间，线程池的工作线程空闲后，保持存活的时间。
+- TimeUnit：线程活动保持时间的单位。
+
+![ThreadPoolExecutor创建流程](https://c7.staticflickr.com/6/5680/30433240462_45b08d547b_o.jpg)
+
+- 首先线程池判断基本线程池（corePoolSize）是否已满？没满，创建一个工作线程来执行任务。满了，则进入下个流程。
+- 其次线程池判断工作队列(workQueue)是否已满？没满，则将新提交的任务存储在工作队列里。满了，则进入下个流程。
+- 最后线程池判断整个线程池(maximumPoolSize)是否已满？没满，则创建一个新的工作线程来执行任务，满了，则交给饱和策略来处理这个任务。
+- 如果线程空闲时间超过keepAliveTime，线程会被终止。
+
+#### ScheduledExecutorService
+
+ScheduledExecutorService继承了ExecutorService，它可以实现延迟执行任务和执行周期性任务。
+
+```java
+public interface ScheduledExecutorService extends ExecutorService {
+    public ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit);
+    
+    public <V> ScheduledFuture<V> schedule(Callable<V> callable, long delay, TimeUnit unit);
+	
+	 public ScheduledFuture<?> scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit);
+	 
+	 public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay, long delay, TimeUnit unit);
+}
+```
+
+- `ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit)`:延迟执行任务，当任务完成时，ScheduledFuture.get()返回null
+- `ScheduledFuture<V> schedule(Callable<V> callable, long delay, TimeUnit unit)`: 延迟执行任务，并且可以返回ScheduledFuture，ScheduledFuture可以用来在任务开始前结束任务，或者返回任务的结果
+- `ScheduledFuture<?> scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit)`:延迟initialDelay开始执行任务，并且每隔period就周期性执行一次任务，如果任务执行的时间大于period，则等到任务执行完毕再开始执行任务
+- `ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay, long delay, TimeUnit unit)`:延迟initialDelay开始执行任务，period周期不同于scheduleAtFixedRate中的period，它是上一次任务结束到下一次任务开始为一个period
+
+### ScheduledThreadPoolExecutor
+    
+ScheduledThreadPoolExecutor继承了ThreadPoolExecutor。用来实现延迟任务线程池，或周期任务线程池。
+其他参数都和ThreadPoolExecutor一样，唯一的区别就是ScheduledThreadPoolExecutor使用的workQueue是DelayedWorkQueue，是一个基于Delay的队列，最先取出的是过期最多的队列，也就可以保证实现延时任务和周期任务。
+
+## Atomic Variable(原子变量)
+
+在`java.util.concurrent.atomic`包下有许多原子变量类，它们在多线程的环境下是安全的。
+例如`AtomicInteger`是一个支持原子操作的Integer类，就是保证对AtomicInteger类型变量的增加和减少操作是原子性的，不会出现多个线程下的数据不一致问题。
+而原子类的基础就是CAS(Compare And Swap)技术。CAS是一种乐观锁技术。现在的CPU都直接支持CAS指令。当多个线程尝试使用CAS同时更新同一个变量时，只有其中一个线程能更新变量的值，而其它线程都失败，失败的线程并不会被挂起，而是被告知这次竞争中失败，并可以再次尝试。
+
+> **悲观锁与乐观锁**
+前面的synchronized和Lock都是**悲观锁**，即在某个资源不可用的时候，就将CPU让出，把当前等待线程切换为阻塞状态。等到资源(比如一个共享数据）可用了，那么就将线程唤醒，让他进入Runnable状态等待CPU调度。
+而当任务执行时间很短的时候，悲观锁就显得很耗费资源，因为挂起和恢复存在着很大的开销。
+所以就有了**乐观锁**的概念，他的核心思路就是，每次不加锁(lock-free)而是假设没有冲突而去完成某项操作，如果因为冲突失败就重试，直到成功为止。
+
+截取一小段AtomicInteger的源代码：
+
+```java
+public class AtomicInteger extends Number implements java.io.Serializable {
+
+    // setup to use Unsafe.compareAndSwapInt for updates
+    private static final Unsafe unsafe = Unsafe.getUnsafe();
+
+    public final int incrementAndGet() {  
+        for (;;) {  
+            int current = get();  
+            int next = current + 1;  
+            if (compareAndSet(current, next))  
+                return next;  
+        }
+    }
+    
+    public final boolean compareAndSet(int expect, int update) {
+    	return unsafe.compareAndSwapInt(this, valueOffset, expect, update);
+    }
+        ...
+}
+```
+
+`compareAndSet`所做的为调用Sun的UnSafe的`compareAndSwapInt`方法来完成，此方法为JNI(Java Native Interface)方法，借助C来调用CPU底层指令实现的。所以基于CAS的操作是无锁的(lock-free)，不会阻塞或挂起线程，由于CAS操作是CPU原语，所以性能比较好。
+
+使用CAS需要注意ABA问题，更多[参考1](https://www.ibm.com/developerworks/cn/java/j-jtp11234/)|[参考2](http://ifeve.com/atomic-operation/)
+
+### concurrent包总结
+
+如果我们仔细分析concurrent包的源代码实现，会发现一个通用化的实现模式，volatile和CAS是基础：
+
+ 1. 首先，声明共享变量为volatile； 
+ 2. 然后，使用CAS的原子条件更新来实现线程之间的同步；
+ 3. 同时，配合以volatile的读/写和CAS所具有的volatile读和写的内存语义来实现线程之间的通信。
+
+AQS(AbstractQueuedSynchronizer)和原子变量类（java.util.concurrent.atomic包中的类），这些concurrent包中的基础类都是使用这种模式来实现的，而concurrent包中的高层类又是依赖于这些基础类来实现的。
+
+整个`java.util.concurrent`包可以用一幅图来总结:
+
+![java.util.concurrent层次图](https://c2.staticflickr.com/6/5498/29923688754_2af7b8763f_o.png)
 
 ## 死锁（Deadlock）
 死锁简单来说就是线程A拥有锁a，而需要线程B的锁b，而同时线程B拥有锁b，同时又需要锁a，则会发生死锁。
@@ -966,6 +1100,7 @@ public class MyController {
 - http://www.cnblogs.com/xrq730/category/733883.html
 - https://github.com/pzxwhc/MineKnowContainer
 - http://www.javamex.com/tutorials/threads/
+- http://ifeve.com/
 
 
 
