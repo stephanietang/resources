@@ -598,7 +598,7 @@ public boolean add(E e) {
 - 实现了以下的方法
 
 |操作|抛出异常|返回值|阻塞|设置超时|
-| ----  | ----  | ---- |---|
+| ----  | ----  | ---- | ---- |
 |增加|add(e)|offer(e)|put(e)|offer(e, time, unit)|
 |删除|remove()|poll()|take()|poll(time, unit)|
 |检测|element()|peek()|||
