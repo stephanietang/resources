@@ -603,15 +603,16 @@ public boolean add(E e) {
 |删除|remove()|poll()|take()|poll(time, unit)|
 |检测|element()|peek()|||
 
-    ![Blocking Queue](https://c1.staticflickr.com/6/5560/30167718120_be3b5f45b2.jpg)    
+![Blocking Queue](https://c1.staticflickr.com/6/5560/30167718120_be3b5f45b2.jpg)
 
 具体的实现类有：
-        + [ArrayBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/ArrayBlockingQueue.html)：是一个基于数组结构的有界阻塞队列，此队列按FIFO(先进先出)原则对元素进行排序。
-        + [LinkedBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/LinkedBlockingDeque.html)：一个基于链表结构的阻塞队列，此队列按FIFO(先进先出)排序元素，可以定义有界的或无界
-        + [PriorityBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/PriorityBlockingQueue.html)：放入其中的元素需要实现Comparable接口
-        + [SynchronousQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/SynchronousQueue.html)：同步队列，来一个元素就及时处理一个
-        + [LinkedBlockingDeque](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/LinkedBlockingDeque.html)：队列两头都可以加入也可以取出元素的队列
-        + [DelayQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/DelayQueue.html)：其中的元素过期最多的首先被取出（头部），元素需要实现Delayed接口，如果没有元素过期，则poll返回null
+    
+- [ArrayBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/ArrayBlockingQueue.html)：是一个基于数组结构的有界阻塞队列，此队列按FIFO(先进先出)原则对元素进行排序
+- [LinkedBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/LinkedBlockingDeque.html)：一个基于链表结构的阻塞队列，此队列按FIFO(先进先出)排序元素，可以定义有界的或无界
+- [PriorityBlockingQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/PriorityBlockingQueue.html)：放入其中的元素需要实现Comparable接口
+- [SynchronousQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/SynchronousQueue.html)：同步队列，来一个元素就及时处理一个
+- [LinkedBlockingDeque](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/LinkedBlockingDeque.html)：队列两头都可以加入也可以取出元素的队列
+- [DelayQueue](https://docs.oracle.com/javase/7/docs/api/java/util/concurrent/DelayQueue.html)：其中的元素过期最多的首先被取出（头部），元素需要实现Delayed接口，如果没有元素过期，则poll返回null
 
 ### Synchronizer
 ### AbstractQueuedSynchronizer(AQS)
