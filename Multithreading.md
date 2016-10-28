@@ -1,4 +1,4 @@
-# 多线程
+# Multi Thread
 标签：Java
 ----------
 ## 实现线程的几种写法
@@ -977,7 +977,7 @@ AQS(AbstractQueuedSynchronizer)和原子变量类（java.util.concurrent.atomic�
 
 整个`java.util.concurrent`包可以用一幅图来总结:
 
-![java.util.concurrent层次图](https://c2.staticflickr.com/6/5498/29923688754_2af7b8763f_o.png)
+![java.util.concurrent层次图](https://c2.staticflickr.com/6/5511/30523836201_2b2ca13da9_o.png)
 
 ## 死锁（Deadlock）
 死锁简单来说就是线程A拥有锁a，而需要线程B的锁b，而同时线程B拥有锁b，同时又需要锁a，则会发生死锁。
